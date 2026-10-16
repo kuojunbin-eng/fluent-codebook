@@ -1,8 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertCircle,
   ArrowUpRight,
+  BarChart3,
   BookOpen,
+  Brain,
   Check,
+  CheckCircle2,
   ChevronRight,
   CircleHelp,
   Copy,
@@ -12,12 +16,18 @@ import {
   Headphones,
   Languages,
   Lightbulb,
+  Mic2,
+  Pause,
+  Play,
   Search,
   Shuffle,
   Sparkles,
   Target,
+  Trophy,
+  RotateCcw,
   Volume2,
   X,
+  XCircle,
 } from "lucide-react";
 import { codebook, bossCodes, type CodebookEntry } from "../data/codebook";
 
@@ -30,6 +40,35 @@ const languageOptions = [
 
 type LanguageKey = (typeof languageOptions)[number]["key"];
 type ViewKey = "codebook" | "boss";
+
+type ReviewRecord = {
+  seen: number;
+  correct: number;
+  wrong: number;
+  streak: number;
+  interval: number;
+  ease: number;
+  dueAt: number;
+};
+
+const emptyReview = (): ReviewRecord => ({ seen: 0, correct: 0, wrong: 0, streak: 0, interval: 0, ease: 2.5, dueAt: 0 });
+
+function speakText(text: string, language: "es-ES" | "fr-FR") {
+  if (typeof window === "undefined" || !window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = language;
+  utterance.rate = 0.82;
+  utterance.pitch = 1;
+  window.speechSynthesis.speak(utterance);
+}
+
+function gradeReview(previous: ReviewRecord, grade: "again" | "good") {
+  const now = Date.now();
+  if (grade === "again") return { ...previous, seen: previous.seen + 1, wrong: previous.wrong + 1, streak: 0, interval: 0, ease: Math.max(1.3, previous.ease - 0.2), dueAt: now + 10 * 60 * 1000 };
+  const nextInterval = previous.interval === 0 ? 1 : previous.interval === 1 ? 3 : Math.max(1, Math.round(previous.interval * previous.ease));
+  return { ...previous, seen: previous.seen + 1, correct: previous.correct + 1, streak: previous.streak + 1, interval: nextInterval, ease: Math.min(3.2, previous.ease + 0.08), dueAt: now + nextInterval * 24 * 60 * 60 * 1000 };
+}
 
 function scoreFor(entry: CodebookEntry, query: string) {
   const needle = query.toLowerCase().trim();
@@ -74,6 +113,7 @@ function AppHeader({ onBossClick }: { onBossClick: () => void }) {
         <nav className="header-nav" aria-label="主要導覽">
           <a className="active" href="#codebook">轉碼字典</a>
           <button onClick={onBossClick}>Boss 故事 <span className="nav-count">10</span></button>
+          <a href="#study">翻卡複習</a>
           <a href="#method">怎麼記</a>
         </nav>
         <div className="header-status"><span className="status-dot" /> 離線可用</div>
@@ -132,8 +172,8 @@ function DetailPanel({ entry, onCopy }: { entry: CodebookEntry; onCopy: (text: s
       <div className="detail-section-label">三語對照與聲音鉤子</div>
       <div className="language-lines">
         <LanguageLine label="ZH" word={entry.zh} cue="先把畫面固定下來：物品、人物或一個動作。" language="zh" onSpeak={() => {}} />
-        <LanguageLine label="ES" word={entry.esWord} cue={entry.esCue} language="es" onSpeak={() => window.speechSynthesis?.speak(new SpeechSynthesisUtterance(entry.esWord))} />
-        <LanguageLine label="FR" word={entry.frWord} cue={entry.frCue} language="fr" onSpeak={() => window.speechSynthesis?.speak(new SpeechSynthesisUtterance(entry.frWord))} />
+        <LanguageLine label="ES" word={entry.esWord} cue={entry.esCue} language="es" onSpeak={() => speakText(entry.esWord, "es-ES")} />
+        <LanguageLine label="FR" word={entry.frWord} cue={entry.frCue} language="fr" onSpeak={() => speakText(entry.frWord, "fr-FR")} />
       </div>
       {entry.boss ? (
         <div className="boss-detail">
@@ -151,13 +191,79 @@ function DetailPanel({ entry, onCopy }: { entry: CodebookEntry; onCopy: (text: s
   );
 }
 
+function StudyPanel({ entry, record, onGrade, onNext }: { entry: CodebookEntry; record: ReviewRecord; onGrade: (grade: "again" | "good") => void; onNext: () => void }) {
+  const [flipped, setFlipped] = useState(false);
+  useEffect(() => setFlipped(false), [entry.code]);
+  return (
+    <section className="study-panel" id="study">
+      <div className="study-heading"><div><div className="section-kicker">03 / FLASH REVIEW</div><h2>翻卡複習・讓答案晚一點出現</h2><p>先看數字和畫面，心裡說出三語答案，再翻卡核對。按「再來一次」或「記住了」，系統會自動安排下一次複習。</p></div><div className="study-streak"><Trophy size={16} /><strong>{record.streak}</strong><span>連續答對</span></div></div>
+      <div className="study-layout">
+        <div className={`flashcard ${flipped ? "is-flipped" : ""}`} onClick={() => setFlipped(!flipped)} role="button" tabIndex={0} onKeyDown={(event) => event.key === "Enter" && setFlipped(!flipped)}>
+          <div className="flashcard-face flashcard-front"><div className="flashcard-tag">NUMBER PROMPT <span>點擊翻面</span></div><div className="flashcard-number">{entry.code}</div><div className="flashcard-image-hint">{entry.zh.slice(0, 1)}<span>⋯</span></div><div className="flashcard-footer"><span>先說出中文圖像</span><span><RotateCcw size={13} /> 翻卡</span></div></div>
+          <div className="flashcard-face flashcard-back"><div className="flashcard-tag">ANSWER CHECK <span>再想一次</span></div><div className="flash-answer-title">{entry.zh}</div><div className="flash-answer-lines"><div><b>ES</b>{entry.esWord}</div><div><b>FR</b>{entry.frWord}</div></div><div className="flashcard-footer"><span>三語答案已揭曉</span><span><RotateCcw size={13} /> 翻回</span></div></div>
+        </div>
+        <div className="study-controls"><div className="study-control-copy"><Brain size={18} /><div><strong>{flipped ? "答案核對完成？" : "準備好開始了嗎？"}</strong><span>{flipped ? "依照回想難度，選擇下一步。" : "不要偷看，先把聲音和畫面說出來。"}</span></div></div><div className="grade-buttons"><button className="grade-again" onClick={() => { setFlipped(true); onGrade("again"); }}><XCircle size={17} /><span><b>再來一次</b><small>10 分鐘後</small></span></button><button className="grade-good" onClick={() => { setFlipped(true); onGrade("good"); }}><CheckCircle2 size={17} /><span><b>記住了</b><small>{record.interval === 0 ? "明天" : `約 ${record.interval} 天後`}</small></span></button></div><button className="next-card-button" onClick={onNext}>下一張待複習卡 <ChevronRight size={16} /></button></div>
+      </div>
+    </section>
+  );
+}
+
+function ProgressPanel({ records, dueCount, wrongCodes, onStudyWrong }: { records: Record<string, ReviewRecord>; dueCount: number; wrongCodes: string[]; onStudyWrong: (code: string) => void }) {
+  const studied = Object.values(records).filter((record) => record.seen > 0);
+  const totalSeen = studied.reduce((sum, record) => sum + record.seen, 0);
+  const totalCorrect = studied.reduce((sum, record) => sum + record.correct, 0);
+  const accuracy = totalSeen ? Math.round((totalCorrect / totalSeen) * 100) : 0;
+  const bestStreak = studied.reduce((best, record) => Math.max(best, record.streak), 0);
+  return <section className="progress-panel container" id="progress"><div className="progress-header"><div><div className="section-kicker">04 / YOUR MEMORY MAP</div><h2>你的複習進度</h2><p>每一次翻卡都會保存在這台裝置，方便你回來接著練。</p></div><div className="progress-icon"><BarChart3 size={22} /></div></div><div className="progress-grid"><div className="progress-stat"><span>整體正確率</span><strong>{accuracy}%</strong><div className="progress-bar"><i style={{ width: `${accuracy}%` }} /></div></div><div className="progress-stat"><span>已練習卡片</span><strong>{studied.length}<small> / 100</small></strong><div className="progress-bar purple"><i style={{ width: `${studied.length}%` }} /></div></div><div className="progress-stat"><span>待複習</span><strong>{dueCount}</strong><div className="progress-caption">SM-2 排程中</div></div><div className="progress-stat"><span>目前最高連勝</span><strong>{bestStreak}</strong><div className="progress-caption">張連續答對</div></div></div><div className="mistake-row"><div><div className="mistake-title"><AlertCircle size={15} /> 個人化錯題本 <span>{wrongCodes.length} 張</span></div><p>按「再練這張」直接把卡片帶回翻卡複習。</p></div><div className="mistake-codes">{wrongCodes.slice(0, 8).map((code) => <button key={code} onClick={() => onStudyWrong(code)}>{code}</button>)}{wrongCodes.length > 8 && <span>+{wrongCodes.length - 8}</span>}</div></div></section>;
+}
+
+function PronunciationPanel({ onPlayWord }: { onPlayWord: (word: string, language: "es-ES" | "fr-FR") => void }) {
+  const [playing, setPlaying] = useState<"es" | "fr" | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playAtlas = (language: "es" | "fr") => {
+    audioRef.current?.pause();
+    const source = language === "fr" ? "/manus-storage/french_numbers_00_99_7de46d94.wav" : "/manus-storage/spanish_numbers_00_19_d7896c44.wav";
+    const audio = new Audio(source);
+    audioRef.current = audio;
+    const words = codebook.map((entry) => language === "es" ? entry.esWord : entry.frWord).join(". ");
+    setPlaying(language);
+    audio.onended = () => setPlaying(null);
+    audio.onerror = () => { setPlaying(null); onPlayWord(words, language === "es" ? "es-ES" : "fr-FR"); };
+    audio.play().catch(() => { setPlaying(null); onPlayWord(words, language === "es" ? "es-ES" : "fr-FR"); });
+  };
+  return <section className="pronunciation-panel container"><div className="pronunciation-copy"><div className="section-kicker">05 / LISTENING ROOM</div><h2>聽見每一組數字的節奏</h2><p>法語提供完整 00–99 真人音檔；西語提供 00–19 真人音檔，其餘數字由西語語系原生語音即時朗讀。</p></div><div className="pronunciation-actions"><button className="pronunciation-button es" onClick={() => playAtlas("es")}>{playing === "es" ? <Pause size={17} /> : <Play size={17} />}<span><b>Español 00–19</b><small>{playing === "es" ? "正在播放真人音檔…" : "播放西語真人音檔"}</small></span></button><button className="pronunciation-button fr" onClick={() => playAtlas("fr")}>{playing === "fr" ? <Pause size={17} /> : <Play size={17} />}<span><b>Français 00–99</b><small>{playing === "fr" ? "正在播放真人音檔…" : "播放完整法語真人音檔"}</small></span></button><div className="voice-note"><Mic2 size={15} /> 點擊卡片右側喇叭，單獨播放該組數字</div></div></section>;
+}
+
 export default function Home() {
   const [query, setQuery] = useState("");
   const [language, setLanguage] = useState<LanguageKey>("all");
   const [view, setView] = useState<ViewKey>("codebook");
   const [selectedCode, setSelectedCode] = useState("00");
   const [copied, setCopied] = useState(false);
+  const [reviewRecords, setReviewRecords] = useState<Record<string, ReviewRecord>>(() => {
+    try { return JSON.parse(localStorage.getItem("fluent-codebook-review") || "{}"); } catch { return {}; }
+  });
   const selected = codebook.find((entry) => entry.code === selectedCode) ?? codebook[0];
+  const selectedRecord = reviewRecords[selected.code] ?? emptyReview();
+  const wrongCodes = codebook.filter((entry) => (reviewRecords[entry.code]?.wrong ?? 0) > (reviewRecords[entry.code]?.correct ?? 0)).map((entry) => entry.code);
+  const dueCount = codebook.filter((entry) => { const dueAt = reviewRecords[entry.code]?.dueAt ?? 0; return dueAt > 0 && dueAt <= Date.now(); }).length;
+
+  useEffect(() => { localStorage.setItem("fluent-codebook-review", JSON.stringify(reviewRecords)); }, [reviewRecords]);
+
+  const gradeSelected = (grade: "again" | "good") => {
+    setReviewRecords((current) => ({ ...current, [selected.code]: gradeReview(current[selected.code] ?? emptyReview(), grade) }));
+  };
+
+  const goNextDue = () => {
+    const next = codebook.find((entry) => (reviewRecords[entry.code]?.dueAt ?? 0) <= Date.now() && entry.code !== selected.code) ?? codebook.find((entry) => entry.code !== selected.code) ?? codebook[0];
+    setSelectedCode(next.code);
+    document.getElementById("study")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+
+  const studyWrong = (code: string) => {
+    setSelectedCode(code);
+    document.getElementById("study")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
 
   const filtered = useMemo(() => {
     const pool = view === "boss" ? codebook.filter((entry) => bossCodes.includes(entry.code)) : codebook;
@@ -222,6 +328,7 @@ export default function Home() {
           <Metric value="10" label="Boss 易混淆數字" accent="#6b5dd3" />
           <div className="stats-note"><Headphones size={17} /><span>點擊 ES / FR 卡片上的喇叭，直接聽出聲音差異。</span></div>
         </section>
+        <PronunciationPanel onPlayWord={speakText} />
 
         <section className="workspace container" id="codebook">
           <div className="section-heading">
@@ -247,6 +354,9 @@ export default function Home() {
             <DetailPanel entry={selected} onCopy={copyText} />
           </div>
         </section>
+
+        <StudyPanel entry={selected} record={selectedRecord} onGrade={gradeSelected} onNext={goNextDue} />
+        <ProgressPanel records={reviewRecords} dueCount={dueCount} wrongCodes={wrongCodes} onStudyWrong={studyWrong} />
 
         <section className="method-section container" id="method">
           <div className="method-intro"><div className="section-kicker">02 / METHOD</div><h2>三步，把聲音變成畫面。</h2><p>不要背抽象的單字。每一次複習，都讓三種線索在同一個腦內場景碰面。</p><a href="#codebook" className="method-link">回到轉碼字典 <ArrowUpRight size={16} /></a></div>
