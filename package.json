@@ -9,6 +9,8 @@
     "start": "NODE_ENV=production node dist/index.js",
     "preview": "vite preview --host",
     "check": "tsc --noEmit",
+    "test:audio-links": "node scripts/test-audio-links.mjs",
+    "test:audio-links:http": "node scripts/test-audio-links.mjs --root dist/public --base-url http://127.0.0.1:4173/",
     "format": "prettier --write ."
   },
   "dependencies": {
