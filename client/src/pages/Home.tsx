@@ -35,6 +35,7 @@ import {
   EyeOff,
 } from "lucide-react";
 import { codebook, bossCodes, type CodebookEntry } from "../data/codebook";
+import { audioPaths } from "../data/audioPaths";
 
 const languageOptions = [
   { key: "all", label: "全部語言" },
@@ -66,11 +67,26 @@ type ReviewRecord = {
 
 const emptyReview = (): ReviewRecord => ({ seen: 0, correct: 0, wrong: 0, streak: 0, interval: 0, ease: 2.5, dueAt: 0 });
 
-function speakText(text: string, language: "es-ES" | "fr-FR") {
+function speakText(text: string, language: "es-ES" | "fr-FR", code?: string) {
+  if (typeof window === "undefined") return;
+  if (code) {
+    const lang = language.startsWith("es") ? "es" : "fr";
+    const audio = new Audio(audioPaths[`${lang}_${code}`]);
+    audio.play().catch(() => speakWithInstalledVoice(text, language));
+    return;
+  }
+  speakWithInstalledVoice(text, language);
+}
+
+function speakWithInstalledVoice(text: string, language: "es-ES" | "fr-FR") {
   if (typeof window === "undefined" || !window.speechSynthesis) return;
   window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = language;
+  const voices = window.speechSynthesis.getVoices();
+  const voice = voices.find((candidate) => candidate.lang.toLowerCase() === language.toLowerCase()) || voices.find((candidate) => candidate.lang.toLowerCase().startsWith(language.slice(0, 2).toLowerCase()));
+  if (!voice) return;
+  utterance.voice = voice;
   utterance.rate = 0.82;
   utterance.pitch = 1;
   window.speechSynthesis.speak(utterance);
@@ -198,8 +214,8 @@ function DetailPanel({ entry, onCopy }: { entry: CodebookEntry; onCopy: (text: s
       <div className="detail-section-label">三語對照與聲音鉤子</div>
       <div className="language-lines">
         <LanguageLine label="ZH" word={entry.zh} cue="先把畫面固定下來：物品、人物或一個動作。" language="zh" onSpeak={() => {}} />
-        <LanguageLine label="ES" word={entry.esWord} cue={entry.esCue} language="es" onSpeak={() => speakText(entry.esWord, "es-ES")} />
-        <LanguageLine label="FR" word={entry.frWord} cue={entry.frCue} language="fr" onSpeak={() => speakText(entry.frWord, "fr-FR")} />
+        <LanguageLine label="ES" word={entry.esWord} cue={entry.esCue} language="es" onSpeak={() => speakText(entry.esWord, "es-ES", entry.code)} />
+        <LanguageLine label="FR" word={entry.frWord} cue={entry.frCue} language="fr" onSpeak={() => speakText(entry.frWord, "fr-FR", entry.code)} />
       </div>
       {entry.boss ? (
         <div className="boss-detail">
@@ -243,21 +259,13 @@ function ProgressPanel({ records, dueCount, wrongCodes, onStudyWrong }: { record
   return <section className="progress-panel container" id="progress"><div className="progress-header"><div><div className="section-kicker">04 / YOUR MEMORY MAP</div><h2>你的複習進度</h2><p>每一次翻卡都會保存在這台裝置，方便你回來接著練。</p></div><div className="progress-icon"><BarChart3 size={22} /></div></div><div className="progress-grid"><div className="progress-stat"><span>整體正確率</span><strong>{accuracy}%</strong><div className="progress-bar"><i style={{ width: `${accuracy}%` }} /></div></div><div className="progress-stat"><span>已練習卡片</span><strong>{studied.length}<small> / 100</small></strong><div className="progress-bar purple"><i style={{ width: `${studied.length}%` }} /></div></div><div className="progress-stat"><span>待複習</span><strong>{dueCount}</strong><div className="progress-caption">SM-2 排程中</div></div><div className="progress-stat"><span>目前最高連勝</span><strong>{bestStreak}</strong><div className="progress-caption">張連續答對</div></div></div><div className="mistake-row"><div><div className="mistake-title"><AlertCircle size={15} /> 個人化錯題本 <span>{wrongCodes.length} 張</span></div><p>按「再練這張」直接把卡片帶回翻卡複習。</p></div><div className="mistake-codes">{wrongCodes.slice(0, 8).map((code) => <button key={code} onClick={() => onStudyWrong(code)}>{code}</button>)}{wrongCodes.length > 8 && <span>+{wrongCodes.length - 8}</span>}</div></div></section>;
 }
 
-function PronunciationPanel({ onPlayWord }: { onPlayWord: (word: string, language: "es-ES" | "fr-FR") => void }) {
+function PronunciationPanel({ onPlayLanguage }: { onPlayLanguage: (language: "es" | "fr", onEnded: () => void) => void }) {
   const [playing, setPlaying] = useState<"es" | "fr" | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const playAtlas = (language: "es" | "fr") => {
-    audioRef.current?.pause();
-    const source = language === "fr" ? "/manus-storage/french_numbers_00_99_7de46d94.wav" : "/manus-storage/spanish_numbers_00_19_d7896c44.wav";
-    const audio = new Audio(source);
-    audioRef.current = audio;
-    const words = codebook.map((entry) => language === "es" ? entry.esWord : entry.frWord).join(". ");
     setPlaying(language);
-    audio.onended = () => setPlaying(null);
-    audio.onerror = () => { setPlaying(null); onPlayWord(words, language === "es" ? "es-ES" : "fr-FR"); };
-    audio.play().catch(() => { setPlaying(null); onPlayWord(words, language === "es" ? "es-ES" : "fr-FR"); });
+    onPlayLanguage(language, () => setPlaying(null));
   };
-  return <section className="pronunciation-panel container"><div className="pronunciation-copy"><div className="section-kicker">05 / LISTENING ROOM</div><h2>聽見每一組數字的節奏</h2><p>法語提供完整 00–99 真人音檔；西語提供 00–19 真人音檔，其餘數字由西語語系原生語音即時朗讀。</p></div><div className="pronunciation-actions"><button className="pronunciation-button es" onClick={() => playAtlas("es")}>{playing === "es" ? <Pause size={17} /> : <Play size={17} />}<span><b>Español 00–19</b><small>{playing === "es" ? "正在播放真人音檔…" : "播放西語真人音檔"}</small></span></button><button className="pronunciation-button fr" onClick={() => playAtlas("fr")}>{playing === "fr" ? <Pause size={17} /> : <Play size={17} />}<span><b>Français 00–99</b><small>{playing === "fr" ? "正在播放真人音檔…" : "播放完整法語真人音檔"}</small></span></button><div className="voice-note"><Mic2 size={15} /> 點擊卡片右側喇叭，單獨播放該組數字</div></div></section>;
+  return <section className="pronunciation-panel container"><div className="pronunciation-copy"><div className="section-kicker">05 / LISTENING ROOM</div><h2>聽見每一組數字的節奏</h2><p>現在每個數字都有獨立的西語／法語音檔，卡片播放會直接使用對應語言，不再依賴瀏覽器預設聲線。</p></div><div className="pronunciation-actions"><button className="pronunciation-button es" onClick={() => playAtlas("es")}>{playing === "es" ? <Pause size={17} /> : <Play size={17} />}<span><b>Español 00–99</b><small>{playing === "es" ? "正在逐組播放…" : "播放完整西語數字"}</small></span></button><button className="pronunciation-button fr" onClick={() => playAtlas("fr")}>{playing === "fr" ? <Pause size={17} /> : <Play size={17} />}<span><b>Français 00–99</b><small>{playing === "fr" ? "正在逐組播放…" : "播放完整法語數字"}</small></span></button><div className="voice-note"><Mic2 size={15} /> 卡片上的喇叭也會播放該組獨立音檔</div></div></section>;
 }
 
 function PracticePanel() {
@@ -292,6 +300,7 @@ export default function Home() {
   const [view, setView] = useState<ViewKey>("codebook");
   const [selectedCode, setSelectedCode] = useState("00");
   const [copied, setCopied] = useState(false);
+  const atlasAudioRef = useRef<HTMLAudioElement | null>(null);
   const [reviewRecords, setReviewRecords] = useState<Record<string, ReviewRecord>>(() => {
     try { return JSON.parse(localStorage.getItem("fluent-codebook-review") || "{}"); } catch { return {}; }
   });
@@ -343,6 +352,21 @@ export default function Home() {
     window.setTimeout(() => setCopied(false), 1500);
   };
 
+  const playLanguageSet = (language: "es" | "fr", onEnded: () => void) => {
+    atlasAudioRef.current?.pause();
+    let index = 0;
+    const playNext = () => {
+      const entry = codebook[index];
+      if (!entry) { onEnded(); return; }
+      const audio = new Audio(audioPaths[`${language}_${entry.code}`]);
+      atlasAudioRef.current = audio;
+      audio.onended = () => { index += 1; playNext(); };
+      audio.onerror = () => { index += 1; playNext(); };
+      audio.play().catch(() => { index += 1; playNext(); });
+    };
+    playNext();
+  };
+
   const jumpToBoss = () => {
     setView("boss");
     setSelectedCode("02");
@@ -380,7 +404,7 @@ export default function Home() {
           <Metric value="10" label="Boss 易混淆數字" accent="#6b5dd3" />
           <div className="stats-note"><Headphones size={17} /><span>點擊 ES / FR 卡片上的喇叭，直接聽出聲音差異。</span></div>
         </section>
-        <PronunciationPanel onPlayWord={speakText} />
+        <PronunciationPanel onPlayLanguage={playLanguageSet} />
         <PracticePanel />
 
         <section className="workspace container" id="codebook">
