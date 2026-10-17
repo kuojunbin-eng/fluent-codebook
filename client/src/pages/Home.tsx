@@ -16,18 +16,23 @@ import {
   Headphones,
   Languages,
   Lightbulb,
+  ListChecks,
   Mic2,
   Pause,
+  PenLine,
   Play,
   Search,
   Shuffle,
   Sparkles,
+  SlidersHorizontal,
   Target,
   Trophy,
   RotateCcw,
   Volume2,
   X,
   XCircle,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { codebook, bossCodes, type CodebookEntry } from "../data/codebook";
 
@@ -40,6 +45,14 @@ const languageOptions = [
 
 type LanguageKey = (typeof languageOptions)[number]["key"];
 type ViewKey = "codebook" | "boss";
+type PracticeType = "all" | "starter" | "advanced" | "boss";
+
+type PracticeQuestion = {
+  codes: string[];
+  answer: string;
+  userMemory: string;
+  revealed: boolean;
+};
 
 type ReviewRecord = {
   seen: number;
@@ -61,6 +74,18 @@ function speakText(text: string, language: "es-ES" | "fr-FR") {
   utterance.rate = 0.82;
   utterance.pitch = 1;
   window.speechSynthesis.speak(utterance);
+}
+
+function practicePool(type: PracticeType) {
+  if (type === "starter") return codebook.filter((entry) => Number(entry.code) < 20);
+  if (type === "advanced") return codebook.filter((entry) => Number(entry.code) >= 20 && !entry.boss);
+  if (type === "boss") return codebook.filter((entry) => entry.boss);
+  return codebook;
+}
+
+function makePracticeQuestion(type: PracticeType, count: number): PracticeQuestion {
+  const pool = [...practicePool(type)].sort(() => Math.random() - 0.5).slice(0, Math.min(count, practicePool(type).length));
+  return { codes: pool.map((entry) => entry.code), answer: "", userMemory: "", revealed: false };
 }
 
 function gradeReview(previous: ReviewRecord, grade: "again" | "good") {
@@ -114,6 +139,7 @@ function AppHeader({ onBossClick }: { onBossClick: () => void }) {
           <a className="active" href="#codebook">轉碼字典</a>
           <button onClick={onBossClick}>Boss 故事 <span className="nav-count">10</span></button>
           <a href="#study">翻卡複習</a>
+          <a href="#practice">自訂訓練</a>
           <a href="#method">怎麼記</a>
         </nav>
         <div className="header-status"><span className="status-dot" /> 離線可用</div>
@@ -234,6 +260,32 @@ function PronunciationPanel({ onPlayWord }: { onPlayWord: (word: string, languag
   return <section className="pronunciation-panel container"><div className="pronunciation-copy"><div className="section-kicker">05 / LISTENING ROOM</div><h2>聽見每一組數字的節奏</h2><p>法語提供完整 00–99 真人音檔；西語提供 00–19 真人音檔，其餘數字由西語語系原生語音即時朗讀。</p></div><div className="pronunciation-actions"><button className="pronunciation-button es" onClick={() => playAtlas("es")}>{playing === "es" ? <Pause size={17} /> : <Play size={17} />}<span><b>Español 00–19</b><small>{playing === "es" ? "正在播放真人音檔…" : "播放西語真人音檔"}</small></span></button><button className="pronunciation-button fr" onClick={() => playAtlas("fr")}>{playing === "fr" ? <Pause size={17} /> : <Play size={17} />}<span><b>Français 00–99</b><small>{playing === "fr" ? "正在播放真人音檔…" : "播放完整法語真人音檔"}</small></span></button><div className="voice-note"><Mic2 size={15} /> 點擊卡片右側喇叭，單獨播放該組數字</div></div></section>;
 }
 
+function PracticePanel() {
+  const [type, setType] = useState<PracticeType>("all");
+  const [count, setCount] = useState(3);
+  const [question, setQuestion] = useState<PracticeQuestion | null>(null);
+  const [memory, setMemory] = useState("");
+  const [history, setHistory] = useState(0);
+  const typeOptions: { key: PracticeType; label: string; detail: string }[] = [
+    { key: "all", label: "全部 00–99", detail: "完整字典" },
+    { key: "starter", label: "入門 00–19", detail: "先熟悉畫面" },
+    { key: "advanced", label: "進階 20–99", detail: "建立速度" },
+    { key: "boss", label: "Boss 10", detail: "易混淆專攻" },
+  ];
+  const start = () => { setQuestion(makePracticeQuestion(type, count)); setMemory(""); };
+  const reveal = () => { if (!question) return; setQuestion({ ...question, revealed: true, userMemory: memory }); };
+  const next = () => {
+    if (!question) return;
+    const old = JSON.parse(localStorage.getItem("fluent-codebook-practice-history") || "[]");
+    localStorage.setItem("fluent-codebook-practice-history", JSON.stringify([{ codes: question.codes, memory, type, createdAt: Date.now() }, ...old].slice(0, 100)));
+    setHistory((value) => value + 1);
+    setQuestion(makePracticeQuestion(type, count));
+    setMemory("");
+  };
+  const entries = question ? question.codes.map((code) => codebook.find((entry) => entry.code === code)!).filter(Boolean) : [];
+  return <section className="practice-section container" id="practice"><div className="practice-heading"><div><div className="section-kicker">06 / CUSTOM TRAINING</div><h2>換你設計一套記憶訓練</h2><p>先選你想練的數字類型與題數。看到題目後，寫下自己的聯想，遮住數字再回想，最後對照標準轉碼表。</p></div><div className="practice-count"><ListChecks size={17} /><strong>{history}</strong><span>本次完成</span></div></div>{!question ? <div className="practice-setup"><div className="setup-label"><SlidersHorizontal size={15} /> 選擇訓練數字類型</div><div className="type-options">{typeOptions.map((option) => <button key={option.key} className={type === option.key ? "selected" : ""} onClick={() => setType(option.key)}><b>{option.label}</b><small>{option.detail}</small></button>)}</div><div className="setup-bottom"><div><span className="setup-label">每題幾組兩位數？</span><div className="count-options">{[1, 2, 3, 5].map((value) => <button key={value} className={count === value ? "selected" : ""} onClick={() => setCount(value)}>{value} 組</button>)}</div></div><button className="start-practice" onClick={start}><PenLine size={16} /> 開始訓練 <ChevronRight size={16} /></button></div></div> : <div className="practice-card"><div className="practice-progress"><span>自訂訓練 · {typeOptions.find((option) => option.key === type)?.label}</span><b>第 {history + 1} 題</b></div><div className="practice-number">{question.revealed ? question.codes.join("  ") : question.codes.map(() => "··").join("  ")}</div><div className="practice-prompt">{question.revealed ? "標準轉碼表已顯示，看看你的畫面是否能對上。" : "把這組數字，先記成你自己的畫面。每兩位數一個圖像。"}</div><div className="practice-entries">{entries.map((entry, index) => <div className={`practice-entry ${question.revealed ? "revealed" : "hidden"}`} key={entry.code}><span>{question.revealed ? entry.code : `第 ${index + 1} 組`}</span><strong>{question.revealed ? entry.zh : "？"}</strong>{question.revealed && <small>ES {entry.esWord} · FR {entry.frWord}</small>}</div>)}</div><label className="memory-input"><span><PenLine size={14} /> 寫下你的聯想 <em>選填</em></span><textarea value={memory} onChange={(event) => setMemory(event.target.value)} placeholder="例如：衣領把三顆仙丹串成一條彩色項鍊……" disabled={question.revealed} /></label><div className="practice-actions">{!question.revealed ? <button className="hide-number-button" onClick={reveal}><EyeOff size={16} /> 記好了，遮住數字 <ChevronRight size={16} /></button> : <button className="next-practice-button" onClick={next}><Eye size={16} /> 下一題 <ChevronRight size={16} /></button>}<button className="reset-practice" onClick={() => setQuestion(null)}>結束本輪</button></div></div>}</section>;
+}
+
 export default function Home() {
   const [query, setQuery] = useState("");
   const [language, setLanguage] = useState<LanguageKey>("all");
@@ -329,6 +381,7 @@ export default function Home() {
           <div className="stats-note"><Headphones size={17} /><span>點擊 ES / FR 卡片上的喇叭，直接聽出聲音差異。</span></div>
         </section>
         <PronunciationPanel onPlayWord={speakText} />
+        <PracticePanel />
 
         <section className="workspace container" id="codebook">
           <div className="section-heading">
